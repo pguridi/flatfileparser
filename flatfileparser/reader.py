@@ -2,9 +2,7 @@
 import csv
 import logging
 import operator
-
-from ffptypes import *
-
+import json
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger('flatfileparser.reader')
@@ -35,6 +33,9 @@ class BaseLineFormat(object):
         self._fields = []
         self.conditions = []
 
+    def get_dict(self):
+        return {}
+
     @property
     def fields(self):
         return self._fields
@@ -48,6 +49,12 @@ class CSVLineFormat(BaseLineFormat):
     def __init__(self, name):
         BaseLineFormat.__init__(self, name)
         self.format = "CSV"
+
+    def get_dict(self):
+        line_format = {"name": self.name, "fields": []}
+        for f in self.fields:
+            line_format["fields"].append(f)
+        return line_format
 
     def add_field(self, field_csv_key, field_parser, new_name=None):
         if new_name:
@@ -97,7 +104,8 @@ class FixedLineFormat(BaseLineFormat):
         try:
             parsed_dict = {}
             for field in self._fields:
-                parsed_dict[field["name"]] = FFP_TYPES[field["type"]](line[field["start_column"]:field["end_column"]])
+                func = self.reader.field_parsers[field["field_parser"]]
+                parsed_dict[field["name"]] = func(line[field["start_column"]:field["end_column"]])
             return parsed_dict
         except Exception, e:
             raise Exception("Error: %s" % str(e))
@@ -125,14 +133,22 @@ class BaseReader(object):
     def __exit__(self, type, value, traceback):
         self._file_stream.close()
 
-    # def export_line_formats(self):
-    #     line_formats = [{"line_format": "CSV",
-    #                      "fields": [{"EFL_key": "EFL_key", "field_type": "numeric", "dynamic_field": False}]}]
-    #     line_formats = []
-    #     for l in self._line_formats:
-    #         l_dict = {"line_format": l.format}
-    #         for f in l.fields:
-    #             l_dict[f]
+    def export_schema(self):
+        to_export = []
+        for l in self.line_formats:
+            to_export.append(l.get_dict())
+        return to_export
+
+    def import_schema(self, file_name):
+        with open(file_name, "r") as f:
+            format_list = json.loads(f.read())
+            for line_format_dict in format_list:
+                line_format = CSVLineFormat(line_format_dict["name"])
+
+                for l in line_format_dict["fields"]:
+                    line_format._fields.append(l)
+                self.add_line_format(line_format)
+
 
     def add_line_format(self, l_format):
         l_format.reader = self
